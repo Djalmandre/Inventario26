@@ -1,11 +1,10 @@
 import io
 from datetime import date
+
 import pandas as pd
 import streamlit as st
 from openpyxl import load_workbook
 import requests
-import base64
-import os
 
 # ─────────────────────────────────────────────
 # CONSTANTES DE ESTRUTURA DA PLANILHA
@@ -164,73 +163,14 @@ def fetch_github_file_bytes(url: str) -> bytes:
     return resp.content
 
 
-def get_image_base64(image_path: str) -> str:
-    """Converte uma imagem para base64."""
-    try:
-        if os.path.exists(image_path):
-            with open(image_path, "rb") as img_file:
-                return base64.b64encode(img_file.read()).decode()
-    except Exception:
-        pass
-    return ""
-
-
 def main():
     st.set_page_config(page_title="Painel Micro Inventário", layout="wide")
-    
-    # ── Obter caminho base e logos ────────────────────────────────────────────
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    logo_jsl_path = os.path.join(script_dir, "logo jsl.png")
-    logo_petrobras_path = os.path.join(script_dir, "Petrobras.png")
-    
-    logo_jsl_b64 = get_image_base64(logo_jsl_path)
-    logo_petrobras_b64 = get_image_base64(logo_petrobras_path)
-    
-    # ── Adicionar logos nas laterais de forma discreta ──────────────────────
-    if logo_jsl_b64 and logo_petrobras_b64:
-        st.markdown(
-            f"""
-            <style>
-            .logo-container {{
-                pointer-events: none;
-            }}
-            
-            .logo-left {{
-                position: fixed;
-                bottom: 15px;
-                left: 15px;
-                z-index: 100;
-                opacity: 0.12;
-                width: 70px;
-                height: auto;
-            }}
-            
-            .logo-right {{
-                position: fixed;
-                bottom: 15px;
-                right: 15px;
-                z-index: 100;
-                opacity: 0.12;
-                width: 80px;
-                height: auto;
-            }}
-            </style>
-            
-            <div class="logo-container">
-                <img src="data:image/png;base64,{logo_jsl_b64}" class="logo-left" alt="JSL Logo">
-                <img src="data:image/png;base64,{logo_petrobras_b64}" class="logo-right" alt="Petrobras Logo">
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    
     st.title("📦 Painel de Micro Inventário — CRONOGRAMA 2025")
 
     # ── Sidebar: URL do GitHub + parâmetros ──────────────────────────────────
     st.sidebar.header("⚙️ Parâmetros")
 
-    # URL correta do repositório GitHub (raw content)
-    default_url = "https://raw.githubusercontent.com/Djalmandre/Inventario26/main/CRONOGRAMA%202026%20RECAP.xlsx"
+    default_url = "https://raw.githubusercontent.com/Djalmandre/Inventario26/raw/refs/heads/main/CRONOGRAMA%202026%20RECAP.xlsx"
     github_url = st.sidebar.text_input(
         "URL do arquivo .xlsx (raw do GitHub)",
         value=default_url,
@@ -243,7 +183,7 @@ def main():
         value=False,
     )
 
-    if not github_url or github_url == "https://raw.githubusercontent.com/Djalmandre/Inventario26/main/CRONOGRAMA%202026%20RECAP.xlsx":
+    if not github_url or github_url == "https://raw.githubusercontent.com/Djalmandre/Inventario26/raw/refs/heads/main/CRONOGRAMA%202026%20RECAP.xlsx":
         st.warning("Configure a URL raw do arquivo .xlsx na barra lateral.")
         st.stop()
 
