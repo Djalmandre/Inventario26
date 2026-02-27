@@ -170,7 +170,7 @@ def main():
     # ── Sidebar: URL do GitHub + parâmetros ──────────────────────────────────
     st.sidebar.header("⚙️ Parâmetros")
 
-    default_url = "COLE_AQUI_A_URL_RAW_DO_SEU_ARQUIVO_NO_GITHUB"
+    default_url = "https://github.com/Djalmandre/Inventario26/raw/refs/heads/main/CRONOGRAMA%202026%20RECAP.xlsx"
     github_url = st.sidebar.text_input(
         "URL do arquivo .xlsx (raw do GitHub)",
         value=default_url,
@@ -183,7 +183,7 @@ def main():
         value=False,
     )
 
-    if not github_url or github_url == "COLE_AQUI_A_URL_RAW_DO_SEU_ARQUIVO_NO_GITHUB":
+    if not github_url or github_url == "https://github.com/Djalmandre/Inventario26/raw/refs/heads/main/CRONOGRAMA%202026%20RECAP.xlsx":
         st.warning("Configure a URL raw do arquivo .xlsx na barra lateral.")
         st.stop()
 
