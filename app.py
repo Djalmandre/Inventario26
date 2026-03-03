@@ -16,10 +16,10 @@ IDX_DATA      = 4   # linha "Data"
 IDX_GRUPO     = 5   # linha de grupo (MZ1, MZ2...)
 IDX_POS_START = 6   # primeira linha de posições (0-based)
 
-# Cores RGB (ARGB) consideradas verdes no Excel
-GREEN_RGB = {"FF00FF00", "FF00B050", "FF92D050", "FF70AD47"}
+# Cores RGB (ARGB) consideradas no Excel
+GREEN_RGB  = {"FF00FF00", "FF00B050", "FF92D050", "FF70AD47"}
 YELLOW_RGB = {"FFFFFF00", "FFFFC000", "FFFFFF99", "FFFFEB9C"}
-RED_RGB = {"FFFF0000", "FFC00000", "FFFF4444", "FFFF0000"}
+RED_RGB    = {"FFFF0000", "FFC00000", "FFFF4444", "FFFF0000"}
 
 
 def safe_rgb(fg):
@@ -64,9 +64,9 @@ def get_cell_status(cell):
 
         theme, tint = safe_theme(fg)
         if theme is not None:
-            if theme == 9 and tint <= 0:   # verde escuro
+            if theme == 9 and tint <= 0:
                 return "INVENTARIADO"
-            if theme == 6 and tint <= 0:   # verde claro
+            if theme == 6 and tint <= 0:
                 return "INVENTARIADO"
             if theme == 7:
                 return "EM ANDAMENTO"
@@ -96,7 +96,6 @@ def load_data(file_bytes, sheet_name):
     Carrega e processa a planilha.
     Usa pandas para contar posições e openpyxl para cores.
     """
-    # 1) Pandas
     df_raw = pd.read_excel(
         io.BytesIO(file_bytes),
         sheet_name=sheet_name,
@@ -104,25 +103,25 @@ def load_data(file_bytes, sheet_name):
         dtype=str,
     )
 
-    row_dia   = df_raw.iloc[IDX_DIA]
-    row_data  = df_raw.iloc[IDX_DATA]
-    posicoes  = df_raw.iloc[IDX_POS_START:]
+    row_dia  = df_raw.iloc[IDX_DIA]
+    row_data = df_raw.iloc[IDX_DATA]
+    posicoes = df_raw.iloc[IDX_POS_START:]
 
     total_por_col = posicoes.apply(
         lambda col: col.dropna().apply(lambda v: str(v).strip() != "").sum()
     )
 
-    dias_uteis = ~row_dia.str.upper().isin(["SÁB", "SAB", "DOM"])
-    tem_data   = row_data.notna() & (row_data != "Data")
+    dias_uteis      = ~row_dia.str.upper().isin(["SÁB", "SAB", "DOM"])
+    tem_data        = row_data.notna() & (row_data != "Data")
     colunas_validas = df_raw.columns[dias_uteis & tem_data & (total_por_col > 0)]
 
     datas_raw = row_data[colunas_validas]
-    datas = pd.to_datetime(datas_raw, errors="coerce")
+    datas     = pd.to_datetime(datas_raw, errors="coerce")
 
-    # 2) openpyxl (cores)
+    # openpyxl: abre .xlsm normalmente (sem executar macros)
     wb = load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=False)
     ws = wb[sheet_name]
-    last_row = IDX_POS_START + len(posicoes)   # Excel row index
+    last_row = IDX_POS_START + len(posicoes)
 
     registros = []
     for pandas_col_idx in colunas_validas:
@@ -140,13 +139,13 @@ def load_data(file_bytes, sheet_name):
         pend = total - inv - em_and - prob
 
         registros.append({
-            "Data":        datas[pandas_col_idx],
-            "Dia":         str(row_dia[pandas_col_idx]),
-            "Total":       total,
+            "Data":         datas[pandas_col_idx],
+            "Dia":          str(row_dia[pandas_col_idx]),
+            "Total":        total,
             "Inventariado": inv,
             "Em Andamento": em_and,
-            "Problema":    prob,
-            "Pendente":    max(pend, 0),
+            "Problema":     prob,
+            "Pendente":     max(pend, 0),
         })
 
     df = pd.DataFrame(registros)
@@ -155,23 +154,21 @@ def load_data(file_bytes, sheet_name):
 
 
 def fetch_github_file_bytes(url: str) -> bytes:
-    """
-    Faz download do .xlsx diretamente do GitHub (URL raw).
-    """
-    resp = requests.get(url)
+    """Faz download do arquivo diretamente do GitHub (URL raw)."""
+    headers = {"User-Agent": "streamlit-app"}
+    resp = requests.get(url, headers=headers, timeout=60)
     resp.raise_for_status()
     return resp.content
 
 
 def main():
     st.set_page_config(page_title="Painel Micro Inventário", layout="wide")
-    st.title("📦 Painel de Micro Inventário — CRONOGRAMA 2025")
+    st.title("📦 Painel de Micro Inventário — CRONOGRAMA 2026")
 
-    # ── Sidebar: parâmetros ───────────────────────────────────────────────────
     st.sidebar.header("⚙️ Parâmetros")
 
-    # URL fixa — carregada automaticamente, sem necessidade de configuração
-    github_url = "https://github.com/Djalmandre/Inventario26/raw/refs/heads/main/CRONOGRAMA%202026%20RECAP.xlsm"
+    # URL fixa — NÃO solicita ao usuário
+    GITHUB_XLSM_URL = "https://github.com/Djalmandre/Inventario26/raw/refs/heads/main/CRONOGRAMA%202026%20RECAP.xlsm"
 
     sheet_name = st.sidebar.text_input("Nome da aba", value="CRONOGRAMA")
     ignorar_passado = st.sidebar.checkbox(
@@ -179,15 +176,16 @@ def main():
         value=False,
     )
 
-    # ── Baixa o arquivo do GitHub ────────────────────────────────────────────
+    # (Opcional) mostrar qual arquivo está sendo usado, sem pedir input
+    st.sidebar.caption(f"Arquivo carregado automaticamente (raw): {GITHUB_XLSM_URL}")
+
     with st.spinner("Baixando planilha do GitHub..."):
         try:
-            file_bytes = fetch_github_file_bytes(github_url)
+            file_bytes = fetch_github_file_bytes(GITHUB_XLSM_URL)
         except Exception as e:
             st.error(f"Erro ao baixar arquivo do GitHub: {e}")
             st.stop()
 
-    # ── Processa ─────────────────────────────────────────────────────────────
     with st.spinner("Processando planilha..."):
         try:
             df = load_data(file_bytes, sheet_name)
@@ -201,13 +199,13 @@ def main():
 
     today = pd.Timestamp(date.today())
 
-    total_pos  = int(df["Total"].sum())
-    total_inv  = int(df["Inventariado"].sum())
-    total_ea   = int(df["Em Andamento"].sum())
-    total_prob = int(df["Problema"].sum())
-    total_pend = int(df["Pendente"].sum())
+    total_pos   = int(df["Total"].sum())
+    total_inv   = int(df["Inventariado"].sum())
+    total_ea    = int(df["Em Andamento"].sum())
+    total_prob  = int(df["Problema"].sum())
+    total_pend  = int(df["Pendente"].sum())
     total_falta = total_ea + total_prob + total_pend
-    pct_inv = round(total_inv / total_pos * 100, 1) if total_pos > 0 else 0.0
+    pct_inv     = round(total_inv / total_pos * 100, 1) if total_pos > 0 else 0.0
 
     mask_aberto = df["Inventariado"] < df["Total"]
     if ignorar_passado:
@@ -216,30 +214,28 @@ def main():
     n_dias = len(dias_abertos_df)
     ideal  = int((total_falta + n_dias - 1) / n_dias) if n_dias > 0 else 0
 
-    # ── Métricas ──────────────────────────────────────────────────────────────
     st.subheader("📊 Resumo Geral")
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Total de Posições",    f"{total_pos:,}".replace(",", "."))
-    c2.metric("✅ Inventariadas",      f"{total_inv:,}".replace(",", "."), f"{pct_inv}%")
-    c3.metric("⬜ Pendentes",          f"{total_pend:,}".replace(",", "."))
-    c4.metric("🟡 Em Andamento",       f"{total_ea:,}".replace(",", "."))
-    c5.metric("🔴 Com Problema",       f"{total_prob:,}".replace(",", "."))
+    c1.metric("Total de Posições",  f"{total_pos:,}".replace(",", "."))
+    c2.metric("✅ Inventariadas",    f"{total_inv:,}".replace(",", "."), f"{pct_inv}%")
+    c3.metric("⬜ Pendentes",        f"{total_pend:,}".replace(",", "."))
+    c4.metric("🟡 Em Andamento",     f"{total_ea:,}".replace(",", "."))
+    c5.metric("🔴 Com Problema",     f"{total_prob:,}".replace(",", "."))
 
     st.subheader("🎯 Planejamento de Uniformidade")
     p1, p2, p3 = st.columns(3)
-    p1.metric("Posições a inventariar",  f"{total_falta:,}".replace(",", "."))
-    p2.metric("Dias úteis em aberto",    n_dias)
-    p3.metric("Meta ideal por dia",      f"{ideal} pos/dia")
+    p1.metric("Posições a inventariar", f"{total_falta:,}".replace(",", "."))
+    p2.metric("Dias úteis em aberto",   n_dias)
+    p3.metric("Meta ideal por dia",     f"{ideal} pos/dia")
 
     st.info(
         f"💡 Para concluir o inventário de forma uniforme, processe "
         f"**{ideal} posições/dia** ao longo de **{n_dias} dias úteis**."
     )
 
-    # ── Tabela ────────────────────────────────────────────────────────────────
     st.subheader("📋 Detalhamento por Dia")
     df_disp = df.copy()
-    df_disp["Data"]       = df_disp["Data"].dt.strftime("%d/%m/%Y")
+    df_disp["Data"] = df_disp["Data"].dt.strftime("%d/%m/%Y")
     df_disp["% Concluído"] = df.apply(
         lambda x: f"{round(x['Inventariado']/x['Total']*100,1)}%" if x["Total"] > 0 else "0%",
         axis=1,
@@ -254,7 +250,6 @@ def main():
         hide_index=True,
     )
 
-    # ── Gráficos ──────────────────────────────────────────────────────────────
     st.subheader("📈 Gráficos")
     tab1, tab2 = st.tabs(["Progresso por Dia", "Meta vs Pendente (Dias Abertos)"])
 
@@ -282,5 +277,4 @@ def main():
 
 
 if __name__ == "__main__":
-
     main()
