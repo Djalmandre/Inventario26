@@ -167,25 +167,17 @@ def main():
     st.set_page_config(page_title="Painel Micro Inventário", layout="wide")
     st.title("📦 Painel de Micro Inventário — CRONOGRAMA 2025")
 
-    # ── Sidebar: URL do GitHub + parâmetros ──────────────────────────────────
+    # ── Sidebar: parâmetros ───────────────────────────────────────────────────
     st.sidebar.header("⚙️ Parâmetros")
 
-    default_url = "https://github.com/Djalmandre/Inventario26/raw/refs/heads/main/CRONOGRAMA%202026%20RECAP.xlsm"
-    github_url = st.sidebar.text_input(
-        "URL do arquivo .xlsx (raw do GitHub)",
-        value=default_url,
-        help="Use a URL do botão 'Raw' do GitHub."
-    )
+    # URL fixa — carregada automaticamente, sem necessidade de configuração
+    github_url = "https://github.com/Djalmandre/Inventario26/raw/refs/heads/main/CRONOGRAMA%202026%20RECAP.xlsm"
 
     sheet_name = st.sidebar.text_input("Nome da aba", value="CRONOGRAMA")
     ignorar_passado = st.sidebar.checkbox(
         "Considerar apenas dias a partir de hoje nos cálculos de meta",
         value=False,
     )
-
-    if not github_url or github_url == "https://github.com/Djalmandre/Inventario26/raw/refs/heads/main/CRONOGRAMA%202026%20RECAP.xlsm":
-        st.warning("Configure a URL raw do arquivo .xlsx na barra lateral.")
-        st.stop()
 
     # ── Baixa o arquivo do GitHub ────────────────────────────────────────────
     with st.spinner("Baixando planilha do GitHub..."):
@@ -292,4 +284,3 @@ def main():
 if __name__ == "__main__":
 
     main()
-
