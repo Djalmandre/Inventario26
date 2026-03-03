@@ -170,7 +170,7 @@ def main():
     # ── Sidebar: URL do GitHub + parâmetros ──────────────────────────────────
     st.sidebar.header("⚙️ Parâmetros")
 
-    default_url = "https://raw.githubusercontent.com/Djalmandre/Inventario26/raw/refs/heads/main/CRONOGRAMA%202026%20RECAP.xlsx"
+    default_url = "https://github.com/Djalmandre/Inventario26/raw/refs/heads/main/CRONOGRAMA%202026%20RECAP.xlsm"
     github_url = st.sidebar.text_input(
         "URL do arquivo .xlsx (raw do GitHub)",
         value=default_url,
@@ -290,4 +290,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()
