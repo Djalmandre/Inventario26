@@ -183,7 +183,7 @@ def main():
         value=False,
     )
 
-    if not github_url or github_url == "https://raw.githubusercontent.com/Djalmandre/Inventario26/raw/refs/heads/main/CRONOGRAMA%202026%20RECAP.xlsx":
+    if not github_url or github_url == "https://github.com/Djalmandre/Inventario26/raw/refs/heads/main/CRONOGRAMA%202026%20RECAP.xlsm":
         st.warning("Configure a URL raw do arquivo .xlsx na barra lateral.")
         st.stop()
 
@@ -292,3 +292,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+
