@@ -2,20 +2,16 @@ import io
 from datetime import date, datetime
 
 import pandas as pd
+import requests
 import streamlit as st
 from openpyxl import load_workbook
-import requests
 
-# ─────────────────────────────────────────────
-# CONSTANTES
-# ─────────────────────────────────────────────
-IDX_DATA_ROW  = 5   # Excel row: datas
-IDX_GROUP_ROW = 6   # Excel row: grupos (MZ1, EST...)
-IDX_POS_START = 7   # Excel row: início das posições
-
-GREEN_RGB = "FF00FF00"
-
-CACHE_VERSION = "2026-03-04-v3"  # altere este valor sempre que mudar o código de parsing
+# ── Constantes ────────────────────────────────────────────────────────────────
+IDX_DATA_ROW  = 5
+IDX_GROUP_ROW = 6
+IDX_POS_START = 7
+GREEN_RGB     = "FF00FF00"
+CACHE_VER     = "v4-20260304"
 
 GITHUB_URL = (
     "https://github.com/Djalmandre/Inventario26/raw/refs/heads/main/"
@@ -23,80 +19,43 @@ GITHUB_URL = (
 )
 
 
-# ─────────────────────────────────────────────
-# HELPERS
-# ─────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 def fetch_file_bytes(url: str) -> bytes:
-    headers = {"User-Agent": "streamlit-app"}
-    resp = requests.get(url, headers=headers, timeout=90)
+    resp = requests.get(url, headers={"User-Agent": "streamlit-app"}, timeout=90)
     resp.raise_for_status()
     return resp.content
 
 
-def parse_excel_date(value) -> pd.Timestamp | None:
-    """
-    Converte o valor bruto da célula de data para pd.Timestamp.
-    - datetime/date  → converte direto
-    - int/float      → serial Excel (dias desde 1899-12-30)
-    - str            → tenta parse; descarta rótulos como 'Data'
-    - Retorna None se inválido ou anterior a 2000-01-01
-    """
+def parse_excel_date(value):
     if value is None:
         return None
-
-    ts = None
-
-    if isinstance(value, (datetime, date)):
-        ts = pd.Timestamp(value)
-
-    elif isinstance(value, (int, float)):
-        # Serial Excel: 1 = 1900-01-01
-        try:
+    try:
+        if isinstance(value, (datetime, date)):
+            ts = pd.Timestamp(value)
+        elif isinstance(value, (int, float)):
             ts = pd.Timestamp("1899-12-30") + pd.Timedelta(days=int(value))
-        except Exception:
-            return None
-
-    elif isinstance(value, str):
-        try:
+        elif isinstance(value, str):
             ts = pd.to_datetime(value, dayfirst=True)
-        except Exception:
+        else:
             return None
-
-    if ts is None:
+        return ts if 2000 <= ts.year <= 2100 else None
+    except Exception:
         return None
 
-    # Descarta datas fora do intervalo esperado (evita seriais errados)
-    if ts.year < 2000 or ts.year > 2100:
-        return None
 
-    return ts
-
-
-# ─────────────────────────────────────────────
-# CARGA DE DADOS
-# ─────────────────────────────────────────────
+# ── Carga de dados ────────────────────────────────────────────────────────────
 @st.cache_data(show_spinner=False)
-def load_data(file_bytes: bytes, sheet_name: str, _cache_version: str = CACHE_VERSION) -> pd.DataFrame:
-    """
-    Lê a planilha em modo read_only.
-    Conta posições ÚNICAS inventariadas — evita duplicatas
-    quando a mesma posição está verde em mais de uma coluna/dia.
-    """
+def load_data(file_bytes: bytes, sheet_name: str, _v: str = CACHE_VER) -> pd.DataFrame:
     wb = load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=True)
 
-    # Alteração 3: valida se a aba existe antes de acessar
     if sheet_name not in wb.sheetnames:
-        raise KeyError(
+        raise ValueError(
             f"Aba '{sheet_name}' não encontrada. "
             f"Abas disponíveis: {wb.sheetnames}"
         )
 
     ws = wb[sheet_name]
-
-    col_data       = {}   # col_idx -> pd.Timestamp
-    col_grupo      = {}   # col_idx -> str
-    col_total      = {}   # col_idx -> int
-    col_verde_vals = {}   # col_idx -> set de valores únicos verdes
+    col_data, col_grupo, col_total, col_verde = {}, {}, {}, {}
 
     for row in ws.iter_rows(min_row=1):
         row_num = None
@@ -107,7 +66,6 @@ def load_data(file_bytes: bytes, sheet_name: str, _cache_version: str = CACHE_VE
         if row_num is None:
             continue
 
-        # ── Linha de datas ────────────────────────────────────────────────
         if row_num == IDX_DATA_ROW:
             for cell in row:
                 if not hasattr(cell, "column") or cell.value is None:
@@ -116,72 +74,71 @@ def load_data(file_bytes: bytes, sheet_name: str, _cache_version: str = CACHE_VE
                 if ts is not None:
                     col_data[cell.column] = ts
 
-        # ── Linha de grupos ───────────────────────────────────────────────
         elif row_num == IDX_GROUP_ROW:
             for cell in row:
                 if hasattr(cell, "column") and cell.value is not None:
                     col_grupo[cell.column] = str(cell.value)
 
-        # ── Linhas de posições ────────────────────────────────────────────
         elif row_num >= IDX_POS_START:
             for cell in row:
                 if not hasattr(cell, "column"):
                     continue
                 c = cell.column
-                if c not in col_data:          # ignora colunas sem data válida
+                if c not in col_data:
                     continue
                 if cell.value is None or str(cell.value).strip() == "":
                     continue
-
                 col_total[c] = col_total.get(c, 0) + 1
-
                 try:
                     fill = cell.fill
-                    if (fill and fill.fill_type == "solid"
-                            and fill.fgColor
-                            and fill.fgColor.type == "rgb"
-                            and str(fill.fgColor.rgb).upper() == GREEN_RGB):
-                        val = str(cell.value).strip().upper()
-                        col_verde_vals.setdefault(c, set()).add(val)
+                    if (
+                        fill
+                        and fill.fill_type == "solid"
+                        and fill.fgColor
+                        and fill.fgColor.type == "rgb"
+                        and str(fill.fgColor.rgb).upper() == GREEN_RGB
+                    ):
+                        col_verde.setdefault(c, set()).add(
+                            str(cell.value).strip().upper()
+                        )
                 except Exception:
                     pass
 
     wb.close()
 
-    # Cada posição contada UMA única vez (primeira ocorrência verde)
-    ja_inventariadas: set = set()
+    ja_inv = set()
     records = []
-
     for c in sorted(col_data.keys()):
         total = col_total.get(c, 0)
         if total == 0:
             continue
+        verdes = col_verde.get(c, set())
+        novas  = verdes - ja_inv
+        ja_inv |= verdes
+        records.append(
+            {
+                "Data":         col_data[c],
+                "Grupo":        col_grupo.get(c, ""),
+                "Total":        total,
+                "Inventariado": len(novas),
+                "Pendente":     total - len(novas),
+            }
+        )
 
-        verdes_col = col_verde_vals.get(c, set())
-        novas      = verdes_col - ja_inventariadas
-        ja_inventariadas |= verdes_col
+    if not records:
+        return pd.DataFrame(
+            columns=["Data", "Grupo", "Total", "Inventariado", "Pendente"]
+        )
 
-        records.append({
-            "col":          c,
-            "Data":         col_data[c],
-            "Grupo":        col_grupo.get(c, ""),
-            "Total":        total,
-            "Inventariado": len(novas),
-            "Pendente":     total - len(novas),
-        })
-
-    df = pd.DataFrame(records).sort_values("Data").reset_index(drop=True)
-    return df
+    return pd.DataFrame(records).sort_values("Data").reset_index(drop=True)
 
 
-# ─────────────────────────────────────────────
-# APP PRINCIPAL
-# ─────────────────────────────────────────────
+# ── App ───────────────────────────────────────────────────────────────────────
 def main():
     st.set_page_config(page_title="Painel Micro Inventário", layout="wide")
     st.title("📦 Painel de Micro Inventário — CRONOGRAMA 2026")
 
-    # ── Sidebar ───────────────────────────────────────────────────────────
+    # Sidebar
     st.sidebar.header("⚙️ Parâmetros")
     sheet_name = st.sidebar.text_input("Nome da aba", value="CRONOGRAMA")
     ignorar_passado = st.sidebar.checkbox(
@@ -190,7 +147,7 @@ def main():
     )
     st.sidebar.caption("📂 Planilha carregada automaticamente do GitHub.")
 
-    # ── Download ──────────────────────────────────────────────────────────
+    # Download
     with st.spinner("⬇️ Baixando planilha do GitHub..."):
         try:
             file_bytes = fetch_file_bytes(GITHUB_URL)
@@ -198,7 +155,7 @@ def main():
             st.error(f"Erro ao baixar arquivo: {e}")
             st.stop()
 
-    # ── Processamento ─────────────────────────────────────────────────────
+    # Processamento
     with st.spinner("🔍 Lendo células e cores da planilha..."):
         try:
             df = load_data(file_bytes, sheet_name)
@@ -206,22 +163,22 @@ def main():
             st.error(f"Erro ao processar planilha: {e}")
             st.stop()
 
-    # Alteração 2: validações explícitas do DataFrame
+    # Validações
     if df is None or df.empty:
-        st.error("load_data retornou vazio. Verifique se a aba existe e se a linha de datas está correta.")
+        st.error("Nenhuma posição encontrada. Verifique o nome da aba e a linha de datas (linha 5).")
         st.stop()
 
     if "Data" not in df.columns:
-        st.error(f"Coluna 'Data' não foi criada. Colunas retornadas: {list(df.columns)}")
+        st.error(f"Coluna 'Data' ausente. Colunas retornadas: {list(df.columns)}")
         st.stop()
 
     if df["Data"].isna().all():
-        st.error("Coluna 'Data' existe, mas todas as datas estão inválidas (NaT). Verifique a linha 5 da planilha.")
+        st.error("Todas as datas estão inválidas. Verifique a linha 5 da planilha.")
         st.stop()
 
     today = pd.Timestamp(date.today())
 
-    # ── Totais globais ────────────────────────────────────────────────────
+    # Totais
     total_pos  = int(df["Total"].sum())
     total_inv  = int(df["Inventariado"].sum())
     total_pend = int(df["Pendente"].sum())
@@ -234,26 +191,25 @@ def main():
     n_dias = len(dias_abertos_df)
     ideal  = int((total_pend + n_dias - 1) / n_dias) if n_dias > 0 else 0
 
-    # ── Métricas ──────────────────────────────────────────────────────────
+    # Métricas
     st.subheader("📊 Resumo Geral")
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("📦 Total de Posições",  f"{total_pos:,}".replace(",", "."))
-    c2.metric("✅ Inventariadas",       f"{total_inv:,}".replace(",", "."), f"{pct_inv}%")
-    c3.metric("⬜ Pendentes",           f"{total_pend:,}".replace(",", "."))
+    c1.metric("📦 Total de Posições",   f"{total_pos:,}".replace(",", "."))
+    c2.metric("✅ Inventariadas",        f"{total_inv:,}".replace(",", "."), f"{pct_inv}%")
+    c3.metric("⬜ Pendentes",            f"{total_pend:,}".replace(",", "."))
     c4.metric("📅 Dias úteis em aberto", n_dias)
 
-    # ── Planejamento ──────────────────────────────────────────────────────
+    # Planejamento
     st.subheader("🎯 Planejamento de Uniformidade")
     p1, p2 = st.columns(2)
     p1.metric("Meta ideal por dia", f"{ideal} pos/dia")
     p2.metric("Progresso geral",    f"{pct_inv}%")
-
     st.info(
         f"💡 Para concluir o inventário de forma uniforme, processe "
         f"**{ideal} posições/dia** ao longo de **{n_dias} dias úteis**."
     )
 
-    # ── Tabela detalhada ──────────────────────────────────────────────────
+    # Tabela
     st.subheader("📋 Detalhamento por Dia")
     df_disp = df.copy()
     df_disp["Data"] = df_disp["Data"].dt.strftime("%d/%m/%Y")
@@ -273,49 +229,52 @@ def main():
         hide_index=True,
     )
 
-    # ── Gráficos ──────────────────────────────────────────────────────────
+    # Gráficos
     st.subheader("📈 Gráficos")
     tab1, tab2, tab3 = st.tabs([
         "📊 Progresso por Dia",
         "🎯 Meta vs Pendente",
-        "📉 Curva de Progresso Acumulado",
+        "📉 Curva Acumulada",
     ])
 
     with tab1:
-        chart_df = df.copy()
-        chart_df["Data_str"] = chart_df["Data"].dt.strftime("%d/%m")
-        chart_df = chart_df.set_index("Data_str")[["Inventariado", "Pendente"]]
-        st.bar_chart(chart_df, color=["#2ecc71", "#bdc3c7"])
+        c_df = df.copy()
+        c_df["Data_str"] = c_df["Data"].dt.strftime("%d/%m")
+        st.bar_chart(
+            c_df.set_index("Data_str")[["Inventariado", "Pendente"]],
+            color=["#2ecc71", "#bdc3c7"],
+        )
 
     with tab2:
         if n_dias > 0:
-            meta_df = dias_abertos_df.copy()
-            meta_df["Data_str"] = meta_df["Data"].dt.strftime("%d/%m")
-            meta_df = meta_df.set_index("Data_str")[["Pendente"]]
-            meta_df["Meta Ideal"] = ideal
-            st.bar_chart(meta_df, color=["#bdc3c7", "#3498db"])
+            m_df = dias_abertos_df.copy()
+            m_df["Data_str"] = m_df["Data"].dt.strftime("%d/%m")
+            m_df = m_df.set_index("Data_str")[["Pendente"]]
+            m_df["Meta Ideal"] = ideal
+            st.bar_chart(m_df, color=["#bdc3c7", "#3498db"])
         else:
             st.success("🎉 Todos os dias já foram concluídos!")
 
     with tab3:
-        # Curva acumulada de inventário
-        df_sorted = df.sort_values("Data").copy()
-        df_sorted["Inv. Acumulado"] = df_sorted["Inventariado"].cumsum()
-        df_sorted["Total Acumulado"] = df_sorted["Total"].cumsum()
-        df_sorted["Data_str"] = df_sorted["Data"].dt.strftime("%d/%m")
-        curva_df = df_sorted.set_index("Data_str")[["Inv. Acumulado", "Total Acumulado"]]
-        st.line_chart(curva_df, color=["#2ecc71", "#3498db"])
+        s_df = df.sort_values("Data").copy()
+        s_df["Inv. Acumulado"]   = s_df["Inventariado"].cumsum()
+        s_df["Total Acumulado"]  = s_df["Total"].cumsum()
+        s_df["Data_str"] = s_df["Data"].dt.strftime("%d/%m")
+        st.line_chart(
+            s_df.set_index("Data_str")[["Inv. Acumulado", "Total Acumulado"]],
+            color=["#2ecc71", "#3498db"],
+        )
         st.caption("🟢 Inventariado acumulado  |  🔵 Total de posições acumulado")
 
-    # ── Legenda ───────────────────────────────────────────────────────────
+    # Legenda
     st.subheader("ℹ️ Legenda")
     st.markdown("""
-    | Cor da célula | Status |
+    | Cor | Status |
     |---|---|
     | 🟢 Verde (`FF00FF00`) | Inventariado |
     | ⬜ Sem cor | Pendente |
 
-    > **Nota:** Cada posição é contada **uma única vez**, mesmo que apareça verde em múltiplos dias.
+    > Cada posição é contada **uma única vez**, mesmo que apareça verde em múltiplos dias.
     """)
 
 
