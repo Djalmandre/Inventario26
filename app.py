@@ -15,6 +15,8 @@ IDX_POS_START = 7   # Excel row: início das posições
 
 GREEN_RGB = "FF00FF00"
 
+CACHE_VERSION = "2026-03-04-v3"  # altere este valor sempre que mudar o código de parsing
+
 GITHUB_URL = (
     "https://github.com/Djalmandre/Inventario26/raw/refs/heads/main/"
     "CRONOGRAMA%202026%20RECAP.xlsm"
@@ -74,13 +76,21 @@ def parse_excel_date(value) -> pd.Timestamp | None:
 # CARGA DE DADOS
 # ─────────────────────────────────────────────
 @st.cache_data(show_spinner=False)
-def load_data(file_bytes: bytes, sheet_name: str) -> pd.DataFrame:
+def load_data(file_bytes: bytes, sheet_name: str, _cache_version: str = CACHE_VERSION) -> pd.DataFrame:
     """
     Lê a planilha em modo read_only.
     Conta posições ÚNICAS inventariadas — evita duplicatas
     quando a mesma posição está verde em mais de uma coluna/dia.
     """
     wb = load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=True)
+
+    # Alteração 3: valida se a aba existe antes de acessar
+    if sheet_name not in wb.sheetnames:
+        raise KeyError(
+            f"Aba '{sheet_name}' não encontrada. "
+            f"Abas disponíveis: {wb.sheetnames}"
+        )
+
     ws = wb[sheet_name]
 
     col_data       = {}   # col_idx -> pd.Timestamp
@@ -196,8 +206,17 @@ def main():
             st.error(f"Erro ao processar planilha: {e}")
             st.stop()
 
-    if df.empty:
-        st.warning("Nenhuma posição encontrada.")
+    # Alteração 2: validações explícitas do DataFrame
+    if df is None or df.empty:
+        st.error("load_data retornou vazio. Verifique se a aba existe e se a linha de datas está correta.")
+        st.stop()
+
+    if "Data" not in df.columns:
+        st.error(f"Coluna 'Data' não foi criada. Colunas retornadas: {list(df.columns)}")
+        st.stop()
+
+    if df["Data"].isna().all():
+        st.error("Coluna 'Data' existe, mas todas as datas estão inválidas (NaT). Verifique a linha 5 da planilha.")
         st.stop()
 
     today = pd.Timestamp(date.today())
